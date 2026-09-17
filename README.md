@@ -1,1 +1,526 @@
-# krachtblok-hyrox
+[index.html](https://github.com/user-attachments/files/32346043/index.html)
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>10-Weken Krachtblok</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#15181A;
+    --panel:#1E2225;
+    --panel-2:#262B2E;
+    --line:#343B3F;
+    --steel:#5C6B72;
+    --signal:#E8A93A;
+    --signal-dim:#8a6a2c;
+    --deload:#B5544A;
+    --deload-bg:#2A1E1C;
+    --text:#EFEBE3;
+    --text-dim:#98A0A3;
+    --good:#7FA66B;
+    --bad:#C1443C;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Work Sans', sans-serif;
+    -webkit-tap-highlight-color:transparent;
+  }
+  h1,h2,h3,.num,.plate{
+    font-family:'Oswald', sans-serif;
+    letter-spacing:0.01em;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding-bottom:40px;}
+
+  header{
+    position:sticky;top:0;z-index:10;
+    background:var(--bg);
+    padding:16px 16px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  header .title{
+    display:flex;justify-content:space-between;align-items:flex-start;
+    margin-bottom:14px;gap:8px;
+  }
+  header h1{
+    font-size:20px;font-weight:700;margin:0;line-height:1.1;
+    text-transform:uppercase;
+  }
+  header .sub{color:var(--text-dim);font-size:12px;margin-top:2px;}
+
+  .headerRight{display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+  .userToggle{
+    display:flex;background:var(--panel);border:1px solid var(--line);
+    border-radius:3px;overflow:hidden;flex-shrink:0;
+  }
+  .userToggle button{
+    border:none;background:transparent;color:var(--text-dim);
+    font-family:'Oswald',sans-serif;font-size:13px;font-weight:600;
+    padding:7px 14px;cursor:pointer;text-transform:uppercase;
+  }
+  .userToggle button.active{background:var(--signal);color:#1a1305;}
+
+  .syncRow{display:flex;align-items:center;gap:6px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--text-dim);flex-shrink:0;}
+  .dot.ok{background:var(--good);}
+  .dot.err{background:var(--bad);}
+  .dot.busy{background:var(--signal);}
+  .syncLabel{font-size:11px;color:var(--text-dim);}
+  .gearBtn{
+    background:none;border:1px solid var(--line);color:var(--text-dim);
+    border-radius:3px;width:24px;height:24px;font-size:13px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  .weekstrip{
+    display:flex;gap:6px;overflow-x:auto;padding:2px 0 4px;
+    scrollbar-width:none;
+  }
+  .weekstrip::-webkit-scrollbar{display:none;}
+  .plate{
+    flex:0 0 auto;width:40px;height:44px;
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--line);background:var(--panel);
+    color:var(--text-dim);font-size:16px;font-weight:600;
+    border-radius:3px;cursor:pointer;
+  }
+  .plate.deload{border-color:var(--deload);color:var(--deload);}
+  .plate.selected{background:var(--signal);border-color:var(--signal);color:#1a1305;}
+
+  main{padding:16px;}
+
+  .blockbanner{
+    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--signal);
+    padding:10px 12px;margin-bottom:16px;border-radius:2px;
+  }
+  .blockbanner.deload{border-left-color:var(--deload);background:var(--deload-bg);}
+  .blockbanner h2{font-size:15px;margin:0 0 4px;text-transform:uppercase;font-weight:600;}
+  .blockbanner p{margin:0;font-size:12.5px;color:var(--text-dim);}
+
+  .superset{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:2px;margin-bottom:12px;overflow:hidden;
+  }
+  .superset .sslabel{
+    background:var(--panel-2);padding:8px 12px;
+    font-family:'Oswald',sans-serif;font-size:12px;font-weight:600;
+    letter-spacing:0.03em;color:#B9C2C6;
+    text-transform:uppercase;
+  }
+  .exercise{
+    padding:10px 12px;display:flex;flex-direction:column;gap:8px;
+    border-top:1px solid var(--line);
+  }
+  .exercise:first-of-type{border-top:none;}
+  .exrow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .exname{font-size:14.5px;font-weight:500;}
+  .exscheme{font-size:13px;color:var(--signal);white-space:nowrap;font-weight:600;}
+  .excontrols{display:flex;gap:8px;align-items:center;}
+  .kginput{
+    flex:1;background:var(--bg);border:1px solid var(--line);color:var(--text);
+    border-radius:2px;padding:7px 8px;font-size:13px;font-family:'Work Sans',sans-serif;
+  }
+  .kginput::placeholder{color:var(--text-dim);}
+  .checkbtn{
+    width:34px;height:34px;flex-shrink:0;
+    border:1px solid var(--line);background:var(--bg);border-radius:2px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    color:var(--text-dim);font-size:16px;
+  }
+  .checkbtn.on{background:var(--good);border-color:var(--good);color:#0f1a0c;}
+
+  .progress{margin-top:8px;}
+  .progress .plabel{
+    display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);
+    margin-bottom:6px;
+  }
+  .pbar{height:6px;background:var(--panel-2);border-radius:3px;overflow:hidden;}
+  .pfill{height:100%;background:var(--signal);border-radius:3px;transition:width .3s ease;}
+
+  .grip{
+    background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:10px 12px;margin:16px 0;font-size:12px;color:var(--text-dim);line-height:1.5;
+  }
+  .grip b{color:var(--text);}
+
+  .modalOverlay{
+    position:fixed;inset:0;background:rgba(0,0,0,0.6);
+    display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;
+  }
+  .modalOverlay.hidden{display:none;}
+  .modal{
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    max-width:400px;width:100%;padding:18px;
+  }
+  .modal h3{margin:0 0 8px;font-size:16px;text-transform:uppercase;}
+  .modal p{font-size:12.5px;color:var(--text-dim);line-height:1.5;margin:0 0 12px;}
+  .modal input{
+    width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);
+    border-radius:2px;padding:9px 10px;font-size:13px;margin-bottom:10px;
+    font-family:'Work Sans',sans-serif;
+  }
+  .modal .btnRow{display:flex;gap:8px;}
+  .modal button{
+    flex:1;border:none;border-radius:2px;padding:10px;font-family:'Oswald',sans-serif;
+    font-weight:600;font-size:13px;text-transform:uppercase;cursor:pointer;
+  }
+  .modal .primary{background:var(--signal);color:#1a1305;}
+  .modal .secondary{background:var(--panel-2);color:var(--text-dim);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title">
+      <div>
+        <h1>10-Weken Krachtblok</h1>
+        <div class="sub">Full-body hypertrofie · naast Hyrox/crossfit</div>
+      </div>
+      <div class="headerRight">
+        <div class="userToggle">
+          <button id="btnFrank" class="active">Frank</button>
+          <button id="btnDaniel">Daniel</button>
+        </div>
+        <div class="syncRow">
+          <span class="dot" id="syncDot"></span>
+          <span class="syncLabel" id="syncLabel">niet verbonden</span>
+          <button class="gearBtn" id="gearBtn" title="GitHub token instellen">⚙</button>
+        </div>
+      </div>
+    </div>
+    <div class="weekstrip" id="weekstrip"></div>
+  </header>
+
+  <main>
+    <div id="blockbanner" class="blockbanner"></div>
+    <div id="supersets"></div>
+
+    <div class="grip">
+      <b>Let op grip:</b> pull-ups en Romanian deadlift belasten allebei de grip. Voelt je grip eerder op dan je rug of hamstrings? Gebruik lifting straps bij de RDL.
+    </div>
+
+    <div class="progress">
+      <div class="plabel"><span id="progLabel">0/10 weken voltooid</span></div>
+      <div class="pbar"><div class="pfill" id="progFill" style="width:0%"></div></div>
+    </div>
+  </main>
+</div>
+
+<div class="modalOverlay hidden" id="tokenModal">
+  <div class="modal">
+    <h3>GitHub token</h3>
+    <p>
+      Om vinkjes en gewichten op te slaan schrijft deze app naar jullie GitHub-repo.
+      Daarvoor is een fine-grained Personal Access Token nodig met <b>Contents: Read and write</b>
+      op de repo <span id="repoNameLabel"></span>. Het token blijft alleen in de browser van dit toestel
+      (localStorage) en wordt nooit naar de repo geschreven.
+    </p>
+    <input type="password" id="tokenInput" placeholder="github_pat_...">
+    <div class="btnRow">
+      <button class="secondary" id="tokenCancel">Sluiten</button>
+      <button class="primary" id="tokenSave">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- Configuratie: pas aan indien nodig ----
+const GITHUB_OWNER = 'frankbot-hub';
+const GITHUB_REPO  = 'krachtblok-hyrox';
+const DATA_PATH    = 'data/progress.json';
+const BRANCH       = 'main';
+const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}`;
+// ---------------------------------------------
+
+const EXERCISES = [
+  {label:'Superset 1 · Push / pull bovenlichaam', a:{id:'ex1a', name:'Bankdrukken (barbell)'}, b:{id:'ex1b', name:'Pull-up'}},
+  {label:'Superset 2 · Quad / hamstring', a:{id:'ex2a', name:'Back squat (barbell)'}, b:{id:'ex2b', name:'Romanian deadlift'}},
+  {label:'Superset 3 · Schouder voor / achter', a:{id:'ex3a', name:'DB shoulder press'}, b:{id:'ex3b', name:'DB reverse fly'}},
+];
+
+const SCHEMES = {
+  frank: [
+    {sets:3, reps:'12', rpe:'7'},
+    {sets:3, reps:'10', rpe:'7-8'},
+    {sets:3, reps:'10', rpe:'8-9'},
+    {sets:2, reps:'10', rpe:'5', deload:true},
+    {sets:3, reps:'12', rpe:'7'},
+    {sets:3, reps:'10', rpe:'8'},
+    {sets:3, reps:'8', rpe:'9'},
+    {sets:2, reps:'10', rpe:'5', deload:true},
+    {sets:3, reps:'10', rpe:'8'},
+    {sets:4, reps:'8', rpe:'9'},
+  ],
+  daniel: [
+    {sets:2, reps:'10', rpe:'6'},
+    {sets:2, reps:'10', rpe:'6-7'},
+    {sets:3, reps:'8', rpe:'7'},
+    {sets:2, reps:'8', rpe:'4-5', deload:true},
+    {sets:3, reps:'10', rpe:'6-7'},
+    {sets:3, reps:'8', rpe:'7'},
+    {sets:3, reps:'8', rpe:'8'},
+    {sets:2, reps:'8', rpe:'5', deload:true},
+    {sets:3, reps:'8', rpe:'7-8'},
+    {sets:3, reps:'8', rpe:'8'},
+  ]
+};
+
+const BLOCK_INFO = [
+  {label:'Blok 1 — Opbouw', note:'Start rustig aan, bouw gewicht per week op binnen de RPE-marge.'},
+  {label:'Blok 1 — Opbouw', note:'Iets zwaarder dan week 1, reps zakken iets, RPE loopt op.'},
+  {label:'Blok 1 — Opbouw', note:'Zwaarste week van het blok. Laatste sets mogen pittig aanvoelen.'},
+  {label:'Deload', note:'Licht en technisch. Doel is herstel, niet vermoeidheid.'},
+  {label:'Blok 2 — Opbouw', note:'Herstart iets zwaarder dan dezelfde week in blok 1.'},
+  {label:'Blok 2 — Opbouw', note:'Opbouw vervolgt, iets minder reps dan week 5.'},
+  {label:'Blok 2 — Opbouw', note:'Zwaarste week van blok 2, dicht bij falen op laatste set.'},
+  {label:'Deload', note:'Licht en technisch. Doel is herstel, niet vermoeidheid.'},
+  {label:'Blok 3 — Piek', note:'Laatste opbouwweek richting de piekweek.'},
+  {label:'Blok 3 — Piek', note:'Piekweek: extra set erbij, hoogste intensiteit van het schema.'},
+];
+
+let currentUser = 'frank';
+let currentWeek = 1;
+let remoteData = {};   // { frank: { w1: {ex1a_done, ex1a_kg, ...}, ... }, daniel: {...} }
+let remoteSha  = null;
+
+// ---------------- GitHub sync ----------------
+
+function getToken(){ return localStorage.getItem('gh_token') || ''; }
+function setToken(t){ localStorage.setItem('gh_token', t); }
+
+function setSyncStatus(state, label){
+  const dot = document.getElementById('syncDot');
+  dot.className = 'dot' + (state ? ' '+state : '');
+  document.getElementById('syncLabel').textContent = label;
+}
+
+function b64EncodeUnicode(str){
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function b64DecodeUnicode(str){
+  return decodeURIComponent(escape(atob(str)));
+}
+
+async function fetchRemote(){
+  setSyncStatus('busy', 'ophalen...');
+  try{
+    const res = await fetch(API_URL, { headers:{ 'Accept':'application/vnd.github+json' } });
+    if(res.status === 404){
+      remoteData = {}; remoteSha = null;
+      setSyncStatus('ok', 'verbonden (leeg)');
+      return;
+    }
+    if(!res.ok) throw new Error('status '+res.status);
+    const json = await res.json();
+    const content = b64DecodeUnicode(json.content.replace(/\n/g,''));
+    remoteData = content ? JSON.parse(content) : {};
+    remoteSha = json.sha;
+    setSyncStatus('ok', 'gesynchroniseerd');
+  }catch(e){
+    console.error(e);
+    setSyncStatus('err', 'offline / fout bij ophalen');
+  }
+}
+
+async function pushRemote(mutateFn, commitMessage){
+  const token = getToken();
+  if(!token){
+    document.getElementById('tokenModal').classList.remove('hidden');
+    setSyncStatus('err', 'geen token ingesteld');
+    return false;
+  }
+  setSyncStatus('busy', 'opslaan...');
+  for(let attempt=0; attempt<3; attempt++){
+    await fetchRemote(); // altijd verse data + sha ophalen om conflicten te voorkomen
+    mutateFn(remoteData);
+    const body = {
+      message: commitMessage,
+      content: b64EncodeUnicode(JSON.stringify(remoteData, null, 2)),
+      branch: BRANCH,
+    };
+    if(remoteSha) body.sha = remoteSha;
+    try{
+      const res = await fetch(API_URL, {
+        method:'PUT',
+        headers:{
+          'Accept':'application/vnd.github+json',
+          'Authorization': 'token ' + token,
+          'Content-Type':'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+      if(res.status === 409){ continue; } // sha conflict, opnieuw proberen
+      if(!res.ok){
+        const errText = await res.text();
+        console.error(errText);
+        setSyncStatus('err', 'opslaan mislukt ('+res.status+')');
+        return false;
+      }
+      const json = await res.json();
+      remoteSha = json.content.sha;
+      setSyncStatus('ok', 'gesynchroniseerd');
+      return true;
+    }catch(e){
+      console.error(e);
+      setSyncStatus('err', 'offline / fout bij opslaan');
+      return false;
+    }
+  }
+  setSyncStatus('err', 'kon niet opslaan (conflict)');
+  return false;
+}
+
+function getWeekData(user, week){
+  return (remoteData[user] && remoteData[user]['w'+week]) || {};
+}
+
+// ---------------- UI rendering ----------------
+
+function renderWeekStrip(){
+  const el = document.getElementById('weekstrip');
+  el.innerHTML = '';
+  for(let w=1; w<=10; w++){
+    const info = BLOCK_INFO[w-1];
+    const div = document.createElement('div');
+    div.className = 'plate' + (info.label==='Deload' ? ' deload' : '') + (w===currentWeek ? ' selected' : '');
+    div.textContent = w;
+    div.onclick = () => { currentWeek = w; render(); };
+    el.appendChild(div);
+  }
+}
+
+function renderBanner(){
+  const info = BLOCK_INFO[currentWeek-1];
+  const scheme = SCHEMES[currentUser][currentWeek-1];
+  const el = document.getElementById('blockbanner');
+  el.className = 'blockbanner' + (info.label==='Deload' ? ' deload' : '');
+  el.innerHTML = `<h2>${info.label} · Week ${currentWeek}</h2>
+    <p>Richtlijn: ${scheme.sets}×${scheme.reps} · RPE ${scheme.rpe} · rust 60-90s tussen supersets<br>${info.note}</p>`;
+}
+
+function renderSupersets(){
+  const scheme = SCHEMES[currentUser][currentWeek-1];
+  const weekData = getWeekData(currentUser, currentWeek);
+  const el = document.getElementById('supersets');
+  el.innerHTML = '';
+  for(const ss of EXERCISES){
+    const card = document.createElement('div');
+    card.className = 'superset';
+    const lbl = document.createElement('div');
+    lbl.className = 'sslabel';
+    lbl.textContent = ss.label;
+    card.appendChild(lbl);
+    [ss.a, ss.b].forEach(ex => {
+      const row = document.createElement('div');
+      row.className = 'exercise';
+      const done = !!weekData[ex.id+'_done'];
+      const kg = weekData[ex.id+'_kg'] || '';
+      row.innerHTML = `
+        <div class="exrow">
+          <span class="exname">${ex.name}</span>
+          <span class="exscheme">${scheme.sets}×${scheme.reps} · RPE ${scheme.rpe}</span>
+        </div>
+        <div class="excontrols">
+          <input class="kginput" type="text" inputmode="decimal" placeholder="gebruikt gewicht (kg)" value="${kg}" data-ex="${ex.id}">
+          <div class="checkbtn ${done ? 'on' : ''}" data-ex="${ex.id}">${done ? '✓' : ''}</div>
+        </div>
+      `;
+      card.appendChild(row);
+    });
+    el.appendChild(card);
+  }
+
+  el.querySelectorAll('.kginput').forEach(inp => {
+    inp.addEventListener('change', async (e) => {
+      const exId = e.target.dataset.ex;
+      const val = e.target.value;
+      const user = currentUser, week = currentWeek;
+      await pushRemote((data) => {
+        data[user] = data[user] || {};
+        data[user]['w'+week] = data[user]['w'+week] || {};
+        data[user]['w'+week][exId+'_kg'] = val;
+      }, `Log: ${user} week ${week} ${exId} gewicht`);
+      renderSupersets();
+      renderProgress();
+    });
+  });
+
+  el.querySelectorAll('.checkbtn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const exId = e.currentTarget.dataset.ex;
+      const user = currentUser, week = currentWeek;
+      const wasDone = !!getWeekData(user, week)[exId+'_done'];
+      await pushRemote((data) => {
+        data[user] = data[user] || {};
+        data[user]['w'+week] = data[user]['w'+week] || {};
+        data[user]['w'+week][exId+'_done'] = !wasDone;
+      }, `Log: ${user} week ${week} ${exId} ${!wasDone ? 'afgevinkt' : 'uitgevinkt'}`);
+      renderSupersets();
+      renderProgress();
+    });
+  });
+}
+
+function renderProgress(){
+  let completedWeeks = 0;
+  for(let w=1; w<=10; w++){
+    const d = getWeekData(currentUser, w);
+    const allDone = EXERCISES.every(ss => d[ss.a.id+'_done'] && d[ss.b.id+'_done']);
+    if(allDone) completedWeeks++;
+  }
+  document.getElementById('progLabel').textContent = completedWeeks + '/10 weken voltooid';
+  document.getElementById('progFill').style.width = (completedWeeks*10) + '%';
+}
+
+async function render(){
+  renderWeekStrip();
+  renderBanner();
+  renderSupersets();
+  renderProgress();
+}
+
+document.getElementById('btnFrank').onclick = () => {
+  currentUser = 'frank';
+  document.getElementById('btnFrank').classList.add('active');
+  document.getElementById('btnDaniel').classList.remove('active');
+  render();
+};
+document.getElementById('btnDaniel').onclick = () => {
+  currentUser = 'daniel';
+  document.getElementById('btnDaniel').classList.add('active');
+  document.getElementById('btnFrank').classList.remove('active');
+  render();
+};
+
+// ---------------- Token modal ----------------
+document.getElementById('repoNameLabel').textContent = `${GITHUB_OWNER}/${GITHUB_REPO}`;
+document.getElementById('gearBtn').onclick = () => {
+  document.getElementById('tokenInput').value = getToken();
+  document.getElementById('tokenModal').classList.remove('hidden');
+};
+document.getElementById('tokenCancel').onclick = () => {
+  document.getElementById('tokenModal').classList.add('hidden');
+};
+document.getElementById('tokenSave').onclick = async () => {
+  setToken(document.getElementById('tokenInput').value.trim());
+  document.getElementById('tokenModal').classList.add('hidden');
+  await fetchRemote();
+  render();
+};
+
+// ---------------- Init ----------------
+(async () => {
+  await fetchRemote();
+  if(!getToken()){
+    document.getElementById('tokenModal').classList.remove('hidden');
+  }
+  render();
+})();
+</script>
+</body>
+</html>
