@@ -2,7 +2,8 @@
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
 <title>10-Weken Krachtblok</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -23,6 +24,10 @@
     --bad:#C1443C;
   }
   *{box-sizing:border-box;}
+  html, body{
+    touch-action: manipulation;
+    overscroll-behavior: none;
+  }
   body{
     margin:0;
     background:var(--bg);
@@ -120,11 +125,13 @@
   .exname{font-size:14.5px;font-weight:500;}
   .exscheme{font-size:13px;color:var(--signal);white-space:nowrap;font-weight:600;}
   .excontrols{display:flex;gap:8px;align-items:center;}
-  .kginput{
+  .kgpicker{
     flex:1;background:var(--bg);border:1px solid var(--line);color:var(--text);
     border-radius:2px;padding:7px 8px;font-size:13px;font-family:'Work Sans',sans-serif;
+    text-align:left;cursor:pointer;
   }
-  .kginput::placeholder{color:var(--text-dim);}
+  .kgpicker.ghost{color:var(--text-dim);}
+  .kgpicker:disabled{opacity:0.45;cursor:default;}
   .checkbtn{
     width:34px;height:34px;flex-shrink:0;
     border:1px solid var(--line);background:var(--bg);border-radius:2px;
@@ -139,7 +146,29 @@
     font-size:12px;font-weight:600;cursor:pointer;text-transform:uppercase;
   }
   .bwbtn.on{background:var(--signal);border-color:var(--signal);color:#1a1305;}
-  .kginput:disabled{opacity:0.45;}
+
+  .wheelWrap{
+    position:relative;height:220px;overflow:hidden;
+    border:1px solid var(--line);border-radius:2px;background:var(--bg);margin-bottom:12px;
+  }
+  .wheelHighlight{
+    position:absolute;top:88px;left:0;right:0;height:44px;
+    border-top:1px solid var(--signal);border-bottom:1px solid var(--signal);
+    background:rgba(232,169,58,0.08);pointer-events:none;
+  }
+  .wheelList{
+    height:220px;overflow-y:scroll;scroll-snap-type:y mandatory;
+    -webkit-overflow-scrolling:touch;padding:88px 0;
+  }
+  .wheelItem{
+    height:44px;display:flex;align-items:center;justify-content:center;
+    scroll-snap-align:center;font-family:'Oswald',sans-serif;font-size:20px;
+    color:var(--text-dim);
+  }
+  .wheelItem.active{color:var(--text);font-weight:600;}
+  .wheelUnit{
+    text-align:center;font-size:12px;color:var(--text-dim);margin:-6px 0 12px;
+  }
 
   .progress{margin-top:8px;}
   .progress .plabel{
@@ -219,6 +248,21 @@
   </main>
 </div>
 
+<div class="modalOverlay hidden" id="wheelModal">
+  <div class="modal">
+    <h3 id="wheelTitle">Gewicht</h3>
+    <div class="wheelWrap">
+      <div class="wheelHighlight"></div>
+      <div class="wheelList" id="wheelList"></div>
+    </div>
+    <div class="wheelUnit">kg</div>
+    <div class="btnRow">
+      <button class="secondary" id="wheelCancel">Annuleren</button>
+      <button class="primary" id="wheelConfirm">Klaar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modalOverlay hidden" id="tokenModal">
   <div class="modal">
     <h3>GitHub token</h3>
@@ -251,32 +295,20 @@ const EXERCISES = [
   {label:'Superset 3 · Schouder voor / achter', a:{id:'ex3a', name:'DB shoulder press'}, b:{id:'ex3b', name:'DB reverse fly'}},
 ];
 
-const SCHEMES = {
-  frank: [
-    {sets:3, reps:'12', rpe:'7'},
-    {sets:3, reps:'10', rpe:'7-8'},
-    {sets:3, reps:'10', rpe:'8-9'},
-    {sets:2, reps:'10', rpe:'5', deload:true},
-    {sets:3, reps:'12', rpe:'7'},
-    {sets:3, reps:'10', rpe:'8'},
-    {sets:3, reps:'8', rpe:'9'},
-    {sets:2, reps:'10', rpe:'5', deload:true},
-    {sets:3, reps:'10', rpe:'8'},
-    {sets:4, reps:'8', rpe:'9'},
-  ],
-  daniel: [
-    {sets:2, reps:'10', rpe:'6'},
-    {sets:2, reps:'10', rpe:'6-7'},
-    {sets:3, reps:'8', rpe:'7'},
-    {sets:2, reps:'8', rpe:'4-5', deload:true},
-    {sets:3, reps:'10', rpe:'6-7'},
-    {sets:3, reps:'8', rpe:'7'},
-    {sets:3, reps:'8', rpe:'8'},
-    {sets:2, reps:'8', rpe:'5', deload:true},
-    {sets:3, reps:'8', rpe:'7-8'},
-    {sets:3, reps:'8', rpe:'8'},
-  ]
-};
+// scheme per week (index 0 = week 1) — gelijk voor Frank en Daniel,
+// intensiteitsverschil loopt via het zelf gekozen gewicht
+const SCHEME = [
+  {sets:3, reps:'12', rpe:'7'},
+  {sets:3, reps:'10', rpe:'7-8'},
+  {sets:3, reps:'10', rpe:'8-9'},
+  {sets:2, reps:'10', rpe:'5', deload:true},
+  {sets:3, reps:'12', rpe:'7'},
+  {sets:3, reps:'10', rpe:'8'},
+  {sets:3, reps:'8', rpe:'9'},
+  {sets:2, reps:'10', rpe:'5', deload:true},
+  {sets:3, reps:'10', rpe:'8'},
+  {sets:4, reps:'8', rpe:'9'},
+];
 
 const BLOCK_INFO = [
   {label:'Blok 1 — Opbouw', note:'Start rustig aan, bouw gewicht per week op binnen de RPE-marge.'},
@@ -394,6 +426,14 @@ function getWeekData(user, week){
   return (remoteData[user] && remoteData[user]['w'+week]) || {};
 }
 
+function getLastKg(user, exId, beforeWeek){
+  for(let w = beforeWeek-1; w >= 1; w--){
+    const val = getWeekData(user, w)[exId+'_kg'];
+    if(val){ return val; }
+  }
+  return null;
+}
+
 // ---------------- UI rendering ----------------
 
 function renderWeekStrip(){
@@ -411,7 +451,7 @@ function renderWeekStrip(){
 
 function renderBanner(){
   const info = BLOCK_INFO[currentWeek-1];
-  const scheme = SCHEMES[currentUser][currentWeek-1];
+  const scheme = SCHEME[currentWeek-1];
   const el = document.getElementById('blockbanner');
   el.className = 'blockbanner' + (info.label==='Deload' ? ' deload' : '');
   el.innerHTML = `<h2>${info.label} · Week ${currentWeek}</h2>
@@ -419,7 +459,7 @@ function renderBanner(){
 }
 
 function renderSupersets(){
-  const scheme = SCHEMES[currentUser][currentWeek-1];
+  const scheme = SCHEME[currentWeek-1];
   const weekData = getWeekData(currentUser, currentWeek);
   const el = document.getElementById('supersets');
   el.innerHTML = '';
@@ -437,9 +477,17 @@ function renderSupersets(){
       const bw = !!weekData[ex.id+'_bw'];
       const kg = weekData[ex.id+'_kg'] || '';
       const bwBtnHtml = ex.bodyweight ? `<button class="bwbtn ${bw ? 'on' : ''}" data-ex="${ex.id}">BW</button>` : '';
-      const kgPlaceholder = ex.bodyweight
-        ? (bw ? 'lichaamsgewicht' : 'extra gewicht (kg)')
-        : 'gebruikt gewicht (kg)';
+      const lastKg = getLastKg(currentUser, ex.id, currentWeek);
+      let kgLabel, isGhost;
+      if(ex.bodyweight && bw){
+        kgLabel = 'lichaamsgewicht'; isGhost = true;
+      } else if(kg){
+        kgLabel = `${kg} kg`; isGhost = false;
+      } else if(lastKg){
+        kgLabel = `vorige keer: ${lastKg} kg`; isGhost = true;
+      } else {
+        kgLabel = ex.bodyweight ? 'extra gewicht (kg)' : 'gebruikt gewicht (kg)'; isGhost = true;
+      }
       row.innerHTML = `
         <div class="exrow">
           <span class="exname">${ex.name}</span>
@@ -447,7 +495,7 @@ function renderSupersets(){
         </div>
         <div class="excontrols">
           ${bwBtnHtml}
-          <input class="kginput" type="text" inputmode="decimal" placeholder="${kgPlaceholder}" value="${bw ? '' : kg}" data-ex="${ex.id}" ${ex.bodyweight && bw ? 'disabled' : ''}>
+          <button class="kgpicker ${isGhost ? 'ghost' : ''}" data-ex="${ex.id}" data-kg="${kg}" data-lastkg="${lastKg || ''}" ${ex.bodyweight && bw ? 'disabled' : ''}>${kgLabel}</button>
           <div class="checkbtn ${done ? 'on' : ''}" data-ex="${ex.id}">${done ? '✓' : ''}</div>
         </div>
       `;
@@ -456,18 +504,12 @@ function renderSupersets(){
     el.appendChild(card);
   }
 
-  el.querySelectorAll('.kginput').forEach(inp => {
-    inp.addEventListener('change', async (e) => {
-      const exId = e.target.dataset.ex;
-      const val = e.target.value;
-      const user = currentUser, week = currentWeek;
-      await queuedPush((data) => {
-        data[user] = data[user] || {};
-        data[user]['w'+week] = data[user]['w'+week] || {};
-        data[user]['w'+week][exId+'_kg'] = val;
-      }, `Log: ${user} week ${week} ${exId} gewicht`);
-      renderSupersets();
-      renderProgress();
+  el.querySelectorAll('.kgpicker').forEach(btn => {
+    if(btn.disabled) return;
+    btn.addEventListener('click', () => {
+      const exId = btn.dataset.ex;
+      const startVal = btn.dataset.kg ? parseInt(btn.dataset.kg, 10) : (btn.dataset.lastkg ? parseInt(btn.dataset.lastkg, 10) : 0);
+      openWheel(exId, startVal);
     });
   });
 
@@ -476,7 +518,7 @@ function renderSupersets(){
       const exId = e.currentTarget.dataset.ex;
       const user = currentUser, week = currentWeek;
       const wasBw = !!getWeekData(user, week)[exId+'_bw'];
-      await pushRemote((data) => {
+      await queuedPush((data) => {
         data[user] = data[user] || {};
         data[user]['w'+week] = data[user]['w'+week] || {};
         data[user]['w'+week][exId+'_bw'] = !wasBw;
@@ -502,6 +544,68 @@ function renderSupersets(){
     });
   });
 }
+
+// ---------------- Gewicht wheel-picker ----------------
+const WHEEL_ITEM_H = 44;
+const WHEEL_MIN = 0;
+const WHEEL_MAX = 300;
+let wheelExId = null;
+let wheelScrollTimer = null;
+
+function buildWheel(){
+  const list = document.getElementById('wheelList');
+  list.innerHTML = '';
+  for(let v = WHEEL_MIN; v <= WHEEL_MAX; v++){
+    const item = document.createElement('div');
+    item.className = 'wheelItem';
+    item.textContent = v;
+    item.dataset.value = v;
+    list.appendChild(item);
+  }
+}
+
+function highlightWheelCenter(){
+  const list = document.getElementById('wheelList');
+  const idx = Math.round(list.scrollTop / WHEEL_ITEM_H);
+  list.querySelectorAll('.wheelItem.active').forEach(el => el.classList.remove('active'));
+  const target = list.children[Math.max(0, Math.min(idx, list.children.length-1))];
+  if(target) target.classList.add('active');
+}
+
+function openWheel(exId, startVal){
+  wheelExId = exId;
+  buildWheel();
+  document.getElementById('wheelModal').classList.remove('hidden');
+  const list = document.getElementById('wheelList');
+  const val = Math.max(WHEEL_MIN, Math.min(WHEEL_MAX, startVal || 0));
+  requestAnimationFrame(() => {
+    list.scrollTop = val * WHEEL_ITEM_H;
+    highlightWheelCenter();
+  });
+}
+
+document.getElementById('wheelList').addEventListener('scroll', () => {
+  clearTimeout(wheelScrollTimer);
+  wheelScrollTimer = setTimeout(highlightWheelCenter, 30);
+});
+
+document.getElementById('wheelCancel').onclick = () => {
+  document.getElementById('wheelModal').classList.add('hidden');
+};
+document.getElementById('wheelConfirm').onclick = async () => {
+  const list = document.getElementById('wheelList');
+  const idx = Math.round(list.scrollTop / WHEEL_ITEM_H);
+  const value = Math.max(WHEEL_MIN, Math.min(WHEEL_MAX, WHEEL_MIN + idx));
+  document.getElementById('wheelModal').classList.add('hidden');
+  const user = currentUser, week = currentWeek, exId = wheelExId;
+  await queuedPush((data) => {
+    data[user] = data[user] || {};
+    data[user]['w'+week] = data[user]['w'+week] || {};
+    data[user]['w'+week][exId+'_kg'] = String(value);
+  }, `Log: ${user} week ${week} ${exId} gewicht ${value}kg`);
+  renderSupersets();
+  renderProgress();
+};
 
 function renderProgress(){
   let completedWeeks = 0;
@@ -555,6 +659,14 @@ document.getElementById('tokenSave').onclick = async () => {
 };
 
 // ---------------- Init ----------------
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if(now - lastTouchEnd <= 300){ e.preventDefault(); }
+  lastTouchEnd = now;
+}, { passive:false });
+
 (async () => {
   await fetchRemote();
   if(!getToken()){
