@@ -1,7 +1,8 @@
 {
   "frank": {
     "w1": {
-      "ex1a_kg": "50"
+      "ex1a_kg": "50",
+      "ex1a_done": true
     }
   }
 }
