@@ -133,6 +133,14 @@
   }
   .checkbtn.on{background:var(--good);border-color:var(--good);color:#0f1a0c;}
 
+  .bwbtn{
+    flex-shrink:0;border:1px solid var(--line);background:var(--bg);color:var(--text-dim);
+    border-radius:2px;padding:0 10px;height:34px;font-family:'Oswald',sans-serif;
+    font-size:12px;font-weight:600;cursor:pointer;text-transform:uppercase;
+  }
+  .bwbtn.on{background:var(--signal);border-color:var(--signal);color:#1a1305;}
+  .kginput:disabled{opacity:0.45;}
+
   .progress{margin-top:8px;}
   .progress .plabel{
     display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);
@@ -188,6 +196,7 @@
         <div class="syncRow">
           <span class="dot" id="syncDot"></span>
           <span class="syncLabel" id="syncLabel">niet verbonden</span>
+          <button class="gearBtn" id="refreshBtn" title="Verversen">⟳</button>
           <button class="gearBtn" id="gearBtn" title="GitHub token instellen">⚙</button>
         </div>
       </div>
@@ -237,7 +246,7 @@ const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/con
 // ---------------------------------------------
 
 const EXERCISES = [
-  {label:'Superset 1 · Push / pull bovenlichaam', a:{id:'ex1a', name:'Bankdrukken (barbell)'}, b:{id:'ex1b', name:'Pull-up'}},
+  {label:'Superset 1 · Push / pull bovenlichaam', a:{id:'ex1a', name:'Bankdrukken (barbell)'}, b:{id:'ex1b', name:'Pull-up', bodyweight:true}},
   {label:'Superset 2 · Quad / hamstring', a:{id:'ex2a', name:'Back squat (barbell)'}, b:{id:'ex2b', name:'Romanian deadlift'}},
   {label:'Superset 3 · Schouder voor / achter', a:{id:'ex3a', name:'DB shoulder press'}, b:{id:'ex3b', name:'DB reverse fly'}},
 ];
@@ -326,6 +335,13 @@ async function fetchRemote(){
   }
 }
 
+let writeChain = Promise.resolve();
+function queuedPush(mutateFn, commitMessage){
+  const next = writeChain.then(() => pushRemote(mutateFn, commitMessage));
+  writeChain = next.catch(() => {}); // volgende write laten doorgaan ook als deze faalt
+  return next;
+}
+
 async function pushRemote(mutateFn, commitMessage){
   const token = getToken();
   if(!token){
@@ -348,7 +364,7 @@ async function pushRemote(mutateFn, commitMessage){
         method:'PUT',
         headers:{
           'Accept':'application/vnd.github+json',
-          'Authorization': 'token ' + token,
+          'Authorization': 'Bearer ' + token,
           'Content-Type':'application/json'
         },
         body: JSON.stringify(body)
@@ -418,14 +434,20 @@ function renderSupersets(){
       const row = document.createElement('div');
       row.className = 'exercise';
       const done = !!weekData[ex.id+'_done'];
+      const bw = !!weekData[ex.id+'_bw'];
       const kg = weekData[ex.id+'_kg'] || '';
+      const bwBtnHtml = ex.bodyweight ? `<button class="bwbtn ${bw ? 'on' : ''}" data-ex="${ex.id}">BW</button>` : '';
+      const kgPlaceholder = ex.bodyweight
+        ? (bw ? 'lichaamsgewicht' : 'extra gewicht (kg)')
+        : 'gebruikt gewicht (kg)';
       row.innerHTML = `
         <div class="exrow">
           <span class="exname">${ex.name}</span>
           <span class="exscheme">${scheme.sets}×${scheme.reps} · RPE ${scheme.rpe}</span>
         </div>
         <div class="excontrols">
-          <input class="kginput" type="text" inputmode="decimal" placeholder="gebruikt gewicht (kg)" value="${kg}" data-ex="${ex.id}">
+          ${bwBtnHtml}
+          <input class="kginput" type="text" inputmode="decimal" placeholder="${kgPlaceholder}" value="${bw ? '' : kg}" data-ex="${ex.id}" ${ex.bodyweight && bw ? 'disabled' : ''}>
           <div class="checkbtn ${done ? 'on' : ''}" data-ex="${ex.id}">${done ? '✓' : ''}</div>
         </div>
       `;
@@ -439,11 +461,27 @@ function renderSupersets(){
       const exId = e.target.dataset.ex;
       const val = e.target.value;
       const user = currentUser, week = currentWeek;
-      await pushRemote((data) => {
+      await queuedPush((data) => {
         data[user] = data[user] || {};
         data[user]['w'+week] = data[user]['w'+week] || {};
         data[user]['w'+week][exId+'_kg'] = val;
       }, `Log: ${user} week ${week} ${exId} gewicht`);
+      renderSupersets();
+      renderProgress();
+    });
+  });
+
+  el.querySelectorAll('.bwbtn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const exId = e.currentTarget.dataset.ex;
+      const user = currentUser, week = currentWeek;
+      const wasBw = !!getWeekData(user, week)[exId+'_bw'];
+      await pushRemote((data) => {
+        data[user] = data[user] || {};
+        data[user]['w'+week] = data[user]['w'+week] || {};
+        data[user]['w'+week][exId+'_bw'] = !wasBw;
+        if(!wasBw){ data[user]['w'+week][exId+'_kg'] = ''; }
+      }, `Log: ${user} week ${week} ${exId} lichaamsgewicht ${!wasBw ? 'aan' : 'uit'}`);
       renderSupersets();
       renderProgress();
     });
@@ -454,7 +492,7 @@ function renderSupersets(){
       const exId = e.currentTarget.dataset.ex;
       const user = currentUser, week = currentWeek;
       const wasDone = !!getWeekData(user, week)[exId+'_done'];
-      await pushRemote((data) => {
+      await queuedPush((data) => {
         data[user] = data[user] || {};
         data[user]['w'+week] = data[user]['w'+week] || {};
         data[user]['w'+week][exId+'_done'] = !wasDone;
@@ -498,6 +536,10 @@ document.getElementById('btnDaniel').onclick = () => {
 
 // ---------------- Token modal ----------------
 document.getElementById('repoNameLabel').textContent = `${GITHUB_OWNER}/${GITHUB_REPO}`;
+document.getElementById('refreshBtn').onclick = async () => {
+  await fetchRemote();
+  render();
+};
 document.getElementById('gearBtn').onclick = () => {
   document.getElementById('tokenInput').value = getToken();
   document.getElementById('tokenModal').classList.remove('hidden');
