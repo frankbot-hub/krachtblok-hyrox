@@ -31,7 +31,9 @@
       "ex3b_done": true
     },
     "w2": {
-      "ex1a_kg": "43"
+      "ex1a_kg": "43",
+      "ex1b_bw": true,
+      "ex1b_kg": ""
     }
   }
 }
