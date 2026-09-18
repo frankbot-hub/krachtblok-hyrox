@@ -280,14 +280,49 @@
   </div>
 </div>
 
+<div class="modalOverlay hidden" id="lockOverlay">
+  <div class="modal">
+    <h3 id="lockTitle">Al open op een ander toestel</h3>
+    <p id="lockMessage"></p>
+    <div class="btnRow">
+      <button class="secondary" id="lockRetry">Vernieuwen</button>
+      <button class="primary" id="lockOverride">Toch overnemen</button>
+    </div>
+  </div>
+</div>
+
+<div class="modalOverlay hidden" id="lockConfirmOverlay">
+  <div class="modal">
+    <h3>Weet je het zeker?</h3>
+    <p>
+      Dit sluit de actieve sessie op het andere toestel af. Doe dit alleen als je zeker weet
+      dat dat toestel niet meer actief in gebruik is.
+    </p>
+    <div class="btnRow">
+      <button class="secondary" id="lockConfirmCancel">Annuleren</button>
+      <button class="primary" id="lockConfirmYes">Ja, overnemen</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ---- Configuratie: pas aan indien nodig ----
 const GITHUB_OWNER = 'frankbot-hub';
 const GITHUB_REPO  = 'krachtblok-hyrox';
 const DATA_PATH    = 'data/progress.json';
+const LOCK_PATH    = 'data/locks.json';
 const BRANCH       = 'main';
-const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}`;
 // ---------------------------------------------
+function contentUrl(path){
+  return `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
+}
+const API_URL = contentUrl(DATA_PATH);
+
+// Max 1 actief toestel per profiel (Frank/Daniel) — samen dus max 2 tegelijk.
+// Een sessie die 2 minuten niets van zich laat horen (heartbeat) wordt als
+// verlaten beschouwd en geeft de plek automatisch vrij.
+const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
+const HEARTBEAT_MS = 30 * 1000;
 
 const EXERCISES = [
   {label:'Superset 1 · Push / pull bovenlichaam', a:{id:'ex1a', name:'Bankdrukken (barbell)'}, b:{id:'ex1b', name:'Pull-up', bodyweight:true}},
@@ -328,6 +363,23 @@ let currentWeek = 1;
 let remoteData = {};   // { frank: { w1: {ex1a_done, ex1a_kg, ...}, ... }, daniel: {...} }
 let remoteSha  = null;
 
+// { frank: {deviceId, heartbeat}, daniel: {...} }
+let lockData = {};
+let lockSha = null;
+let heartbeatTimer = null;
+let lockPollTimer = null;
+let pendingLockUser = null;
+
+function getOrCreateDeviceId(){
+  let id = localStorage.getItem('gh_device_id');
+  if(!id){
+    id = (crypto.randomUUID ? crypto.randomUUID() : 'dev-' + Math.random().toString(36).slice(2) + Date.now());
+    localStorage.setItem('gh_device_id', id);
+  }
+  return id;
+}
+const deviceId = getOrCreateDeviceId();
+
 // ---------------- GitHub sync ----------------
 
 function getToken(){ return localStorage.getItem('gh_token') || ''; }
@@ -346,45 +398,208 @@ function b64DecodeUnicode(str){
   return decodeURIComponent(escape(atob(str)));
 }
 
-async function fetchRemote(){
-  setSyncStatus('busy', 'ophalen...');
+// Altijd het token meesturen als het beschikbaar is, ook bij lezen: GitHub staat
+// zonder token maar 60 verzoeken/uur toe per netwerk (gedeeld door alle apparaten op
+// hetzelfde wifi!), met token 5000/uur. Dat tekort was de hoofdoorzaak van het haperen.
+function authHeaders(extra){
+  const token = getToken();
+  const headers = Object.assign({ 'Accept':'application/vnd.github+json' }, extra || {});
+  if(token){ headers['Authorization'] = 'Bearer ' + token; }
+  return headers;
+}
+
+// Generieke GET/PUT voor eender welk bestand in de repo (gebruikt voor zowel
+// data/progress.json als data/locks.json).
+async function ghGet(path){
   try{
-    const res = await fetch(API_URL, { headers:{ 'Accept':'application/vnd.github+json' } });
+    const res = await fetch(contentUrl(path), { headers: authHeaders() });
+    if(res.status === 404){ return { ok:true, data:{}, sha:null }; }
+    if(!res.ok) throw new Error('status '+res.status);
+    const json = await res.json();
+    const content = b64DecodeUnicode(json.content.replace(/\n/g,''));
+    return { ok:true, data: content ? JSON.parse(content) : {}, sha: json.sha };
+  }catch(e){
+    console.error(e);
+    return { ok:false };
+  }
+}
+
+async function ghPut(path, data, sha, message, extraFetchOpts){
+  try{
+    const body = { message, content: b64EncodeUnicode(JSON.stringify(data, null, 2)), branch: BRANCH };
+    if(sha) body.sha = sha;
+    const res = await fetch(contentUrl(path), Object.assign({
+      method:'PUT',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify(body)
+    }, extraFetchOpts || {}));
+    if(res.status === 409){ return { ok:false, conflict:true }; }
+    if(!res.ok){ return { ok:false, status:res.status }; }
+    const json = await res.json();
+    return { ok:true, sha: json.content.sha };
+  }catch(e){
+    console.error(e);
+    return { ok:false };
+  }
+}
+
+// ---------------- Toestel-lock (max 1 apparaat per profiel) ----------------
+
+async function acquireLock(user){
+  for(let attempt=0; attempt<3; attempt++){
+    const res = await ghGet(LOCK_PATH);
+    if(!res.ok){ showLockOverlay(user, 'fout'); return false; }
+    lockData = res.data || {}; lockSha = res.sha;
+    const entry = lockData[user];
+    const isFresh = entry && entry.heartbeat && (Date.now() - new Date(entry.heartbeat).getTime()) < LOCK_TIMEOUT_MS;
+    const isMine = entry && entry.deviceId === deviceId;
+    if(isFresh && !isMine){
+      showLockOverlay(user, 'blocked', entry);
+      return false;
+    }
+    lockData[user] = { deviceId, heartbeat: new Date().toISOString() };
+    const put = await ghPut(LOCK_PATH, lockData, lockSha, `Lock: ${user} actief op dit toestel`);
+    if(put.conflict){ continue; } // iemand anders schreef net, opnieuw proberen met verse sha
+    if(!put.ok){ showLockOverlay(user, 'fout'); return false; }
+    lockSha = put.sha;
+    hideLockOverlay();
+    startHeartbeat(user);
+    return true;
+  }
+  showLockOverlay(user, 'blocked', lockData[user]);
+  return false;
+}
+
+function startHeartbeat(user){
+  stopHeartbeat();
+  heartbeatTimer = setInterval(async () => {
+    const res = await ghGet(LOCK_PATH);
+    if(!res.ok) return; // netwerkhikje, volgende tik opnieuw proberen
+    lockData = res.data || {}; lockSha = res.sha;
+    const entry = lockData[user];
+    if(entry && entry.deviceId !== deviceId){
+      // een ander toestel heeft deze plek overgenomen
+      stopHeartbeat();
+      showLockOverlay(user, 'taken-over', entry);
+      return;
+    }
+    lockData[user] = { deviceId, heartbeat: new Date().toISOString() };
+    const put = await ghPut(LOCK_PATH, lockData, lockSha, `Heartbeat: ${user}`);
+    if(put.ok){ lockSha = put.sha; }
+  }, HEARTBEAT_MS);
+}
+
+function stopHeartbeat(){
+  if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+async function releaseLock(user){
+  stopHeartbeat();
+  const res = await ghGet(LOCK_PATH);
+  if(!res.ok) return;
+  lockData = res.data || {}; lockSha = res.sha;
+  const entry = lockData[user];
+  if(entry && entry.deviceId === deviceId){
+    delete lockData[user];
+    await ghPut(LOCK_PATH, lockData, lockSha, `Unlock: ${user} gesloten`);
+  }
+}
+
+function showLockOverlay(user, kind, entry){
+  pendingLockUser = user;
+  const label = user === 'frank' ? 'Frank' : 'Daniel';
+  const title = document.getElementById('lockTitle');
+  const msg = document.getElementById('lockMessage');
+  if(kind === 'taken-over'){
+    title.textContent = 'Overgenomen';
+    msg.textContent = `Een ander toestel heeft de ${label}-sessie overgenomen. Vernieuw om verder te gaan.`;
+  } else if(kind === 'blocked'){
+    title.textContent = 'Al open op een ander toestel';
+    msg.textContent = `De ${label}-sessie staat al open op een ander toestel. Wacht tot deze automatisch vrijkomt (max. 2 minuten), of neem 'm over als je zeker weet dat dat toestel niet meer actief is.`;
+  } else {
+    title.textContent = 'Geen verbinding';
+    msg.textContent = 'Kon niet controleren of de app al open staat op een ander toestel. Probeer het opnieuw.';
+  }
+  document.getElementById('lockOverlay').classList.remove('hidden');
+  if(!lockPollTimer){
+    lockPollTimer = setInterval(retryLock, 8000);
+  }
+}
+
+function hideLockOverlay(){
+  document.getElementById('lockOverlay').classList.add('hidden');
+  if(lockPollTimer){ clearInterval(lockPollTimer); lockPollTimer = null; }
+}
+
+async function retryLock(){
+  const ok = await acquireLock(pendingLockUser);
+  if(ok){ render(); }
+}
+
+async function fetchRemote(){
+  try{
+    const res = await fetch(API_URL, { headers: authHeaders() });
     if(res.status === 404){
       remoteData = {}; remoteSha = null;
-      setSyncStatus('ok', 'verbonden (leeg)');
-      return;
+      return true;
     }
     if(!res.ok) throw new Error('status '+res.status);
     const json = await res.json();
     const content = b64DecodeUnicode(json.content.replace(/\n/g,''));
     remoteData = content ? JSON.parse(content) : {};
     remoteSha = json.sha;
-    setSyncStatus('ok', 'gesynchroniseerd');
+    return true;
   }catch(e){
     console.error(e);
-    setSyncStatus('err', 'offline / fout bij ophalen');
+    return false;
   }
 }
 
-let writeChain = Promise.resolve();
-function queuedPush(mutateFn, commitMessage){
-  const next = writeChain.then(() => pushRemote(mutateFn, commitMessage));
-  writeChain = next.catch(() => {}); // volgende write laten doorgaan ook als deze faalt
-  return next;
+// ---- Optimistic UI + achtergrond-syncwachtrij ----
+// Een tik past het lokale beeld DIRECT aan (geen wachten op het netwerk), en de
+// echte opslag naar GitHub gebeurt op de achtergrond. Mislukt dat (offline, drukte,
+// een botsing met Daniel's toestel), dan wordt het stilletjes opnieuw geprobeerd
+// in plaats van de wijziging te laten verdwijnen met een foutmelding.
+let pendingMutations = [];
+let syncing = false;
+
+function queueMutation(mutateFn, commitMessage){
+  mutateFn(remoteData);         // 1. direct zichtbaar, geen netwerkvertraging
+  renderSupersets();
+  renderProgress();
+  pendingMutations.push({ mutateFn, commitMessage });
+  processSyncQueue();           // 2. opslaan op de achtergrond
 }
 
-async function pushRemote(mutateFn, commitMessage){
+async function processSyncQueue(){
+  if(syncing) return;
+  syncing = true;
+  while(pendingMutations.length){
+    setSyncStatus('busy', pendingMutations.length > 1 ? `opslaan (${pendingMutations.length})...` : 'opslaan...');
+    const job = pendingMutations[0];
+    const ok = await pushOne(job.mutateFn, job.commitMessage);
+    if(ok){
+      pendingMutations.shift();
+      setSyncStatus('ok', 'gesynchroniseerd');
+    } else {
+      setSyncStatus('err', 'even geduld, probeert opnieuw...');
+      await new Promise(r => setTimeout(r, 4000));
+    }
+  }
+  syncing = false;
+}
+
+async function pushOne(mutateFn, commitMessage){
   const token = getToken();
   if(!token){
     document.getElementById('tokenModal').classList.remove('hidden');
     setSyncStatus('err', 'geen token ingesteld');
     return false;
   }
-  setSyncStatus('busy', 'opslaan...');
   for(let attempt=0; attempt<3; attempt++){
-    await fetchRemote(); // altijd verse data + sha ophalen om conflicten te voorkomen
-    mutateFn(remoteData);
+    const fetched = await fetchRemote(); // verse data + sha, om conflicten te voorkomen
+    if(!fetched){ return false; } // netwerk-/limietprobleem: buitenste wachtrij probeert later opnieuw
+    mutateFn(remoteData); // idempotent: zet dit ene veld opnieuw op de gewenste waarde
     const body = {
       message: commitMessage,
       content: b64EncodeUnicode(JSON.stringify(remoteData, null, 2)),
@@ -394,32 +609,27 @@ async function pushRemote(mutateFn, commitMessage){
     try{
       const res = await fetch(API_URL, {
         method:'PUT',
-        headers:{
-          'Accept':'application/vnd.github+json',
-          'Authorization': 'Bearer ' + token,
-          'Content-Type':'application/json'
-        },
+        headers: authHeaders({ 'Content-Type':'application/json' }),
         body: JSON.stringify(body)
       });
-      if(res.status === 409){ continue; } // sha conflict, opnieuw proberen
+      if(res.status === 409){ continue; } // sha conflict (ander toestel schreef net), opnieuw proberen
+      if(res.status === 403){
+        return false; // rate limit / secondary limit: buitenste wachtrij wacht en probeert opnieuw
+      }
       if(!res.ok){
         const errText = await res.text();
         console.error(errText);
-        setSyncStatus('err', 'opslaan mislukt ('+res.status+')');
         return false;
       }
       const json = await res.json();
       remoteSha = json.content.sha;
-      setSyncStatus('ok', 'gesynchroniseerd');
       return true;
     }catch(e){
       console.error(e);
-      setSyncStatus('err', 'offline / fout bij opslaan');
       return false;
     }
   }
-  setSyncStatus('err', 'kon niet opslaan (conflict)');
-  return false;
+  return false; // 3x conflict op rij, buitenste wachtrij probeert het zo weer
 }
 
 function getWeekData(user, week){
@@ -514,33 +724,29 @@ function renderSupersets(){
   });
 
   el.querySelectorAll('.bwbtn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       const exId = e.currentTarget.dataset.ex;
       const user = currentUser, week = currentWeek;
       const wasBw = !!getWeekData(user, week)[exId+'_bw'];
-      await queuedPush((data) => {
+      queueMutation((data) => {
         data[user] = data[user] || {};
         data[user]['w'+week] = data[user]['w'+week] || {};
         data[user]['w'+week][exId+'_bw'] = !wasBw;
         if(!wasBw){ data[user]['w'+week][exId+'_kg'] = ''; }
       }, `Log: ${user} week ${week} ${exId} lichaamsgewicht ${!wasBw ? 'aan' : 'uit'}`);
-      renderSupersets();
-      renderProgress();
     });
   });
 
   el.querySelectorAll('.checkbtn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       const exId = e.currentTarget.dataset.ex;
       const user = currentUser, week = currentWeek;
       const wasDone = !!getWeekData(user, week)[exId+'_done'];
-      await queuedPush((data) => {
+      queueMutation((data) => {
         data[user] = data[user] || {};
         data[user]['w'+week] = data[user]['w'+week] || {};
         data[user]['w'+week][exId+'_done'] = !wasDone;
       }, `Log: ${user} week ${week} ${exId} ${!wasDone ? 'afgevinkt' : 'uitgevinkt'}`);
-      renderSupersets();
-      renderProgress();
     });
   });
 }
@@ -592,19 +798,17 @@ document.getElementById('wheelList').addEventListener('scroll', () => {
 document.getElementById('wheelCancel').onclick = () => {
   document.getElementById('wheelModal').classList.add('hidden');
 };
-document.getElementById('wheelConfirm').onclick = async () => {
+document.getElementById('wheelConfirm').onclick = () => {
   const list = document.getElementById('wheelList');
   const idx = Math.round(list.scrollTop / WHEEL_ITEM_H);
   const value = Math.max(WHEEL_MIN, Math.min(WHEEL_MAX, WHEEL_MIN + idx));
   document.getElementById('wheelModal').classList.add('hidden');
   const user = currentUser, week = currentWeek, exId = wheelExId;
-  await queuedPush((data) => {
+  queueMutation((data) => {
     data[user] = data[user] || {};
     data[user]['w'+week] = data[user]['w'+week] || {};
     data[user]['w'+week][exId+'_kg'] = String(value);
   }, `Log: ${user} week ${week} ${exId} gewicht ${value}kg`);
-  renderSupersets();
-  renderProgress();
 };
 
 function renderProgress(){
@@ -625,23 +829,28 @@ async function render(){
   renderProgress();
 }
 
-document.getElementById('btnFrank').onclick = () => {
-  currentUser = 'frank';
-  document.getElementById('btnFrank').classList.add('active');
-  document.getElementById('btnDaniel').classList.remove('active');
+async function switchUser(newUser){
+  if(currentUser === newUser) return;
+  const prevUser = currentUser;
+  document.getElementById('btnFrank').classList.toggle('active', newUser==='frank');
+  document.getElementById('btnDaniel').classList.toggle('active', newUser==='daniel');
+  await releaseLock(prevUser);
+  currentUser = newUser;
+  if(getToken()){
+    const ok = await acquireLock(newUser);
+    if(!ok) return; // overlay staat al open, wacht op vrijgave/overname
+  }
   render();
-};
-document.getElementById('btnDaniel').onclick = () => {
-  currentUser = 'daniel';
-  document.getElementById('btnDaniel').classList.add('active');
-  document.getElementById('btnFrank').classList.remove('active');
-  render();
-};
+}
+document.getElementById('btnFrank').onclick = () => switchUser('frank');
+document.getElementById('btnDaniel').onclick = () => switchUser('daniel');
 
 // ---------------- Token modal ----------------
 document.getElementById('repoNameLabel').textContent = `${GITHUB_OWNER}/${GITHUB_REPO}`;
 document.getElementById('refreshBtn').onclick = async () => {
-  await fetchRemote();
+  setSyncStatus('busy', 'ophalen...');
+  const ok = await fetchRemote();
+  setSyncStatus(ok ? 'ok' : 'err', ok ? 'gesynchroniseerd' : 'offline / fout bij ophalen');
   render();
 };
 document.getElementById('gearBtn').onclick = () => {
@@ -654,9 +863,64 @@ document.getElementById('tokenCancel').onclick = () => {
 document.getElementById('tokenSave').onclick = async () => {
   setToken(document.getElementById('tokenInput').value.trim());
   document.getElementById('tokenModal').classList.add('hidden');
-  await fetchRemote();
+  setSyncStatus('busy', 'ophalen...');
+  const ok = await fetchRemote();
+  setSyncStatus(ok ? 'ok' : 'err', ok ? 'gesynchroniseerd' : 'offline / fout bij ophalen');
+  await acquireLock(currentUser); // zonder token kon dit nog niet, nu wel
   render();
 };
+
+// ---------------- Toestel-lock knoppen ----------------
+document.getElementById('lockRetry').onclick = retryLock;
+document.getElementById('lockOverride').onclick = () => {
+  document.getElementById('lockConfirmOverlay').classList.remove('hidden');
+};
+document.getElementById('lockConfirmCancel').onclick = () => {
+  document.getElementById('lockConfirmOverlay').classList.add('hidden');
+};
+document.getElementById('lockConfirmYes').onclick = async () => {
+  document.getElementById('lockConfirmOverlay').classList.add('hidden');
+  const user = pendingLockUser;
+  const res = await ghGet(LOCK_PATH);
+  lockData = res.ok ? (res.data || {}) : {};
+  lockSha = res.ok ? res.sha : null;
+  lockData[user] = { deviceId, heartbeat: new Date().toISOString() };
+  const put = await ghPut(LOCK_PATH, lockData, lockSha, `Lock overgenomen: ${user}`);
+  if(put.ok){
+    lockSha = put.sha;
+    hideLockOverlay();
+    startHeartbeat(user);
+    render();
+  } else {
+    showLockOverlay(user, 'fout');
+  }
+};
+
+// Best effort: geef de plek meteen vrij bij het sluiten/wegvegen van de app,
+// zodat het andere toestel niet standaard de volle 2 minuten hoeft te wachten.
+// Dit lukt niet altijd (mobiele browsers kunnen het verzoek afbreken) —
+// de automatische verlooptijd van 2 minuten is het vangnet dat altijd werkt.
+window.addEventListener('pagehide', () => {
+  if(!getToken()) return;
+  const entry = lockData[currentUser];
+  if(!entry || entry.deviceId !== deviceId) return;
+  const updated = Object.assign({}, lockData);
+  delete updated[currentUser];
+  const body = {
+    message: `Unlock: ${currentUser} gesloten`,
+    content: b64EncodeUnicode(JSON.stringify(updated, null, 2)),
+    branch: BRANCH,
+  };
+  if(lockSha) body.sha = lockSha;
+  try{
+    fetch(contentUrl(LOCK_PATH), {
+      method:'PUT',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify(body),
+      keepalive: true
+    });
+  }catch(e){ /* best effort, negeren */ }
+});
 
 // ---------------- Init ----------------
 document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -668,10 +932,15 @@ document.addEventListener('touchend', (e) => {
 }, { passive:false });
 
 (async () => {
-  await fetchRemote();
+  setSyncStatus('busy', 'ophalen...');
+  const ok = await fetchRemote();
+  setSyncStatus(ok ? 'ok' : 'err', ok ? 'gesynchroniseerd' : 'offline / fout bij ophalen');
   if(!getToken()){
     document.getElementById('tokenModal').classList.remove('hidden');
+    render();
+    return; // zonder token kan de lock niet geclaimd worden; dat gebeurt na het opslaan van het token
   }
+  await acquireLock(currentUser);
   render();
 })();
 </script>
