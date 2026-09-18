@@ -13,5 +13,10 @@
       "ex2a_done": true,
       "ex3a_done": true
     }
+  },
+  "daniel": {
+    "w1": {
+      "ex1a_kg": "40"
+    }
   }
 }
