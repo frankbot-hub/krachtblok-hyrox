@@ -16,7 +16,9 @@
   },
   "daniel": {
     "w1": {
-      "ex1a_kg": "40"
+      "ex1a_kg": "40",
+      "ex1b_bw": true,
+      "ex1b_kg": ""
     }
   }
 }
