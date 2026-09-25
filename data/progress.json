@@ -64,7 +64,8 @@
     },
     "w3": {
       "ex1a_kg": "45",
-      "ex1a_done": true
+      "ex1a_done": true,
+      "ex1b_done": true
     }
   }
 }
