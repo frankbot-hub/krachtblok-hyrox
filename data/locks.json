@@ -2,5 +2,9 @@
   "daniel": {
     "deviceId": "70bc1a12-de38-4c50-aed3-e219f2e1bce4",
     "heartbeat": "2026-09-25T04:52:45.827Z"
+  },
+  "frank": {
+    "deviceId": "1488396a-6555-4199-9128-aea168bfa7ec",
+    "heartbeat": "2026-09-28T03:31:30.111Z"
   }
 }
