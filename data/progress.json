@@ -85,6 +85,10 @@
       "ex2b_done": true,
       "ex3a_done": true,
       "ex3b_done": true
+    },
+    "w5": {
+      "ex1b_bw": true,
+      "ex1b_kg": ""
     }
   }
 }
