@@ -88,7 +88,8 @@
     },
     "w5": {
       "ex1b_bw": true,
-      "ex1b_kg": ""
+      "ex1b_kg": "",
+      "ex1a_kg": "50"
     }
   }
 }
