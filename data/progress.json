@@ -108,7 +108,8 @@
       "ex1b_kg": "",
       "ex1b_done": true,
       "ex2a_kg": "45",
-      "ex2a_done": true
+      "ex2a_done": true,
+      "ex2b_kg": "60"
     }
   }
 }
